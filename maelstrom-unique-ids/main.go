@@ -2,16 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
-	"time"
+	"maelstrom-unique-ids/pkg/snowflake"
+	"os"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
 func main() {
 	n := maelstrom.NewNode()
-	millis := time.Now().UnixNano() & 0xFFFFFFFF
-	var i int64
+
+	sfg, err := snowflake.NewGenerator(os.Getpid())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create snowflake generator: %v", err))
+	}
 
 	n.Handle("echo", func(msg maelstrom.Message) error {
 		// Unmarshal the message body as an loosely-typed map.
@@ -34,8 +39,7 @@ func main() {
 		}
 
 		body["type"] = "generate_ok"
-		body["id"] = millis + i
-		i += 1
+		body["id"] = sfg.NextId()
 
 		return n.Reply(msg, body)
 	})
