@@ -13,7 +13,7 @@ import (
 func main() {
 	n := maelstrom.NewNode()
 
-	sfg, err := snowflake.NewGenerator(int64(os.Getpid()))
+	worker, err := snowflake.NewWorker(int64(os.Getpid()))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create snowflake generator: %v", err))
 	}
@@ -37,9 +37,13 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
+		id, err := worker.NextId()
+		if err != nil {
+			return err
+		}
 
 		body["type"] = "generate_ok"
-		body["id"] = sfg.NextId()
+		body["id"] = id
 
 		return n.Reply(msg, body)
 	})

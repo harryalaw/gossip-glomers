@@ -8,9 +8,13 @@ import (
 
 func TestSnowflake_NextId(t *testing.T) {
 	t.Run("Generates positive Ids", func(t *testing.T) {
-		gen1, _ := NewGenerator(1)
+		w, _ := NewWorker(1)
 
-		id := gen1.NextId()
+		id, err := w.NextId()
+
+		if err != nil {
+			t.Fatalf("Error getting next Id: %v", err)
+		}
 
 		if id < 0 {
 			t.Fatalf("Id expected to be positive, was %d", id)
@@ -19,16 +23,20 @@ func TestSnowflake_NextId(t *testing.T) {
 	})
 
 	t.Run("Generate Ids", func(t *testing.T) {
-		gen1, _ := NewGenerator(1)
+		w, _ := NewWorker(1)
 
 		length := 100
-		gen1Ids := make([]int64, 0)
-		idSet := make(map[int64]struct{})
+		ids := make([]uint64, 0)
+		idSet := make(map[uint64]struct{})
 
 		for i := 0; i < length; i++ {
-			nextId := gen1.NextId()
+			nextId, err := w.NextId()
 
-			gen1Ids = append(gen1Ids, nextId)
+			if err != nil {
+				t.Fatalf("Error getting next Id: %v", err)
+			}
+
+			ids = append(ids, nextId)
 			idSet[nextId] = struct{}{}
 		}
 
@@ -38,20 +46,28 @@ func TestSnowflake_NextId(t *testing.T) {
 	})
 
 	t.Run("Generates unique Ids for two nodes", func(t *testing.T) {
-		gen1, _ := NewGenerator(1)
-		gen2, _ := NewGenerator(2)
+		w1, _ := NewWorker(1)
+		w2, _ := NewWorker(2)
 
 		length := 100
-		gen1Ids := make([]int64, length)
-		gen2Ids := make([]int64, length)
-		idSet := make(map[int64]struct{})
+		w1Ids := make([]uint64, length)
+		w2Ids := make([]uint64, length)
+		idSet := make(map[uint64]struct{})
 
 		for i := 0; i < length; i++ {
-			nextId1 := gen1.NextId()
-			gen1Ids[i] = nextId1
+			nextId1, err := w1.NextId()
+			if err != nil {
+				t.Fatalf("Error getting next Id: %v", err)
+			}
 
-			nextId2 := gen2.NextId()
-			gen2Ids[i] = nextId2
+			w1Ids[i] = nextId1
+
+			nextId2, err := w2.NextId()
+			if err != nil {
+				t.Fatalf("Error getting next Id: %v", err)
+			}
+
+			w2Ids[i] = nextId2
 
 			idSet[nextId1] = struct{}{}
 			idSet[nextId2] = struct{}{}
@@ -63,51 +79,56 @@ func TestSnowflake_NextId(t *testing.T) {
 	})
 
 	t.Run("More concurrent Id generation?", func(t *testing.T) {
-		gen1, _ := NewGenerator(1)
-		gen2, _ := NewGenerator(2)
-		gen3, _ := NewGenerator(3)
+		w1, _ := NewWorker(1)
+		w2, _ := NewWorker(2)
+		w3, _ := NewWorker(3)
 
 		length := 100
-		gen1Ids := make([]int64, length)
-		gen2Ids := make([]int64, length)
-		gen3Ids := make([]int64, length)
+		w1Ids := make([]uint64, length)
+		w2Ids := make([]uint64, length)
+		w3Ids := make([]uint64, length)
 
 		var wg sync.WaitGroup
-		incrementer := func(gen *Generator, idList *[]int64, id int) {
+		incrementer := func(gen *Worker, idList *[]uint64, id int) {
 			defer wg.Done()
 			for i := 0; i < length; i++ {
-				nextId := gen.NextId()
+				nextId, err := gen.NextId()
+
+				if err != nil {
+					fmt.Printf("Error getting next Id: %v\n", err)
+					continue
+				}
 				(*idList)[i] = nextId
 			}
 		}
 
 		wg.Add(3)
-		go incrementer(gen1, &gen1Ids, 1)
-		go incrementer(gen2, &gen2Ids, 2)
-		go incrementer(gen3, &gen3Ids, 3)
+		go incrementer(w1, &w1Ids, 1)
+		go incrementer(w2, &w2Ids, 2)
+		go incrementer(w3, &w3Ids, 3)
 		wg.Wait()
 
-		if length != len(gen1Ids) {
-			t.Fatalf("Didn't generate enough Ids for list 1, expected %d, got %d", length, len(gen1Ids))
+		if length != len(w1Ids) {
+			t.Fatalf("Didn't generate enough Ids for list 1, expected %d, got %d", length, len(w1Ids))
 		}
-		if length != len(gen2Ids) {
-			t.Fatalf("Didn't generate enough Ids for list 2, expected %d, got %d", length, len(gen2Ids))
+		if length != len(w2Ids) {
+			t.Fatalf("Didn't generate enough Ids for list 2, expected %d, got %d", length, len(w2Ids))
 		}
-		if length != len(gen3Ids) {
-			t.Fatalf("Didn't generate enough Ids for list 3, expected %d, got %d", length, len(gen3Ids))
+		if length != len(w3Ids) {
+			t.Fatalf("Didn't generate enough Ids for list 3, expected %d, got %d", length, len(w3Ids))
 		}
 
-		idSet := make(map[int64]int)
+		idSet := make(map[uint64]int)
 
 		for i := 0; i < length; i++ {
-			prev, _ := idSet[gen1Ids[i]]
-			idSet[gen1Ids[i]] = prev + 1
+			prev, _ := idSet[w1Ids[i]]
+			idSet[w1Ids[i]] = prev + 1
 
-			prev, _ = idSet[gen2Ids[i]]
-			idSet[gen2Ids[i]] = prev + 100
+			prev, _ = idSet[w2Ids[i]]
+			idSet[w2Ids[i]] = prev + 100
 
-			prev, _ = idSet[gen3Ids[i]]
-			idSet[gen3Ids[i]] = prev + 100_000
+			prev, _ = idSet[w3Ids[i]]
+			idSet[w3Ids[i]] = prev + 100_000
 		}
 
 		if len(idSet) != 3*length {
@@ -118,5 +139,44 @@ func TestSnowflake_NextId(t *testing.T) {
 			}
 			t.Fatalf("Generated duplicate IDs. Expected %d Ids, got %d", 3*length, len(idSet))
 		}
+	})
+
+	t.Run("One generator, lots of ids", func(t *testing.T) {
+		w, _ := NewWorker(5)
+
+		var wg sync.WaitGroup
+		count := 10_000
+		ch := make(chan uint64, count)
+		wg.Add(count)
+		defer close(ch)
+
+		for i := 0; i < count; i++ {
+			go func() {
+				defer wg.Done()
+				id, _ := w.NextId()
+				ch <- id
+			}()
+		}
+		wg.Wait()
+
+		ids := make(map[uint64]int)
+
+		for i := 0; i < count; i++ {
+			id := <-ch
+			prev, _ := ids[id]
+
+			ids[id] = prev + 1
+		}
+
+		if len(ids) != count {
+			for key, val := range ids {
+				if val > 1 {
+					fmt.Printf("Duplicate key: %d\n", key)
+				}
+
+			}
+			t.Fatalf("Repeated IDs, expected: %d, got: %d", count, len(ids))
+		}
+
 	})
 }

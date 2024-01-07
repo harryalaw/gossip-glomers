@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type Generator struct {
+type Worker struct {
 	mu sync.Mutex
 
 	nodeId   int64
@@ -15,49 +15,61 @@ type Generator struct {
 	lastTimestamp int64
 }
 
-func NewGenerator(nodeId int64) (*Generator, error) {
+func NewWorker(nodeId int64) (*Worker, error) {
 	if 0 > nodeId {
 		return nil, fmt.Errorf("invalid node ID={%d}: cannot be negative", nodeId)
 	}
 
-	return &Generator{
-		nodeId: nodeId & maxNodeId,
+	return &Worker{
+		nodeId:        nodeId & maxNodeId,
+		sequence:      0,
+		lastTimestamp: 0,
 	}, nil
 }
 
-const sequenceBits = 12
-const nodeIdBits = 10
-const sequenceMask = -1 ^ (-1 << sequenceBits)
+const (
+	sequenceBits = uint64(12)
+	nodeIdBits   = uint64(10)
 
-const maxNodeId = -1 ^ (-1 << nodeIdBits)
-const workerIdShift = sequenceBits
-const timestampLeftShift = workerIdShift + sequenceBits
+	sequenceMask = -1 ^ (-1 << sequenceBits)
+	maxNodeId    = -1 ^ (-1 << nodeIdBits)
 
-const epoch = 1704067200000
+	nodeIdShift        = sequenceBits
+	timestampLeftShift = nodeIdBits + sequenceBits
+	epoch              = 1704067200000
+)
 
-func (g *Generator) NextId() int64 {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+func (w *Worker) NextId() (uint64, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.nextId()
+}
+
+func (w *Worker) nextId() (uint64, error) {
 	timestamp := timeGen()
 
-	if g.lastTimestamp == timestamp {
-		g.sequence = (g.sequence + 1) & sequenceMask
-
-		if g.sequence == 0 {
-			timestamp = nextMillis(g.lastTimestamp)
-		}
-	} else {
-		g.sequence = 0
+	if timestamp < w.lastTimestamp {
+		return 0, fmt.Errorf("time is moving backwards")
 	}
 
-	g.sequence += 1
-	g.lastTimestamp = timestamp
+	if w.lastTimestamp == timestamp {
+		w.sequence = (w.sequence + 1) & sequenceMask
+
+		if w.sequence == 0 {
+			timestamp = nextMillis(w.lastTimestamp)
+		}
+	} else {
+		w.sequence = 0
+	}
+
+	w.lastTimestamp = timestamp
 
 	id := ((timestamp - epoch) << timestampLeftShift) |
-		(g.nodeId << workerIdShift) |
-		g.sequence
+		(w.nodeId << nodeIdShift) |
+		w.sequence
 
-	return id
+	return uint64(id), nil
 }
 
 func nextMillis(lastTimestamp int64) int64 {
