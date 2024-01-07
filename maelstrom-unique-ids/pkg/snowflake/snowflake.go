@@ -9,13 +9,13 @@ import (
 type Generator struct {
 	mu sync.Mutex
 
-	nodeId   int
-	sequence int16
+	nodeId   int64
+	sequence int64
 
 	lastTimestamp int64
 }
 
-func NewGenerator(nodeId int) (*Generator, error) {
+func NewGenerator(nodeId int64) (*Generator, error) {
 	if 0 > nodeId {
 		return nil, fmt.Errorf("invalid node ID={%d}: cannot be negative", nodeId)
 	}
@@ -54,8 +54,8 @@ func (g *Generator) NextId() int64 {
 	g.lastTimestamp = timestamp
 
 	id := ((timestamp - epoch) << timestampLeftShift) |
-		(int64(g.nodeId) << workerIdShift) |
-		int64(g.sequence)
+		(g.nodeId << workerIdShift) |
+		g.sequence
 
 	return id
 }

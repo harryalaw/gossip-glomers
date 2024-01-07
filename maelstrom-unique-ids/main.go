@@ -13,7 +13,7 @@ import (
 func main() {
 	n := maelstrom.NewNode()
 
-	sfg, err := snowflake.NewGenerator(os.Getpid())
+	sfg, err := snowflake.NewGenerator(int64(os.Getpid()))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create snowflake generator: %v", err))
 	}
