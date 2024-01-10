@@ -60,7 +60,7 @@ func (s *Server) HandleBroadcast(msg maelstrom.Message) error {
 }
 
 func (s *Server) HandleRead(msg maelstrom.Message) error {
-    body := make(map[string]any)
+	body := make(map[string]any)
 
 	s.idsMu.RLock()
 	defer s.idsMu.RUnlock()

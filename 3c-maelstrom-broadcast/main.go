@@ -18,9 +18,9 @@ func main() {
 	//errorPrint := log.New(os.Stderr, "", 1);
 	s, err := server.New(n)
 
-    if err != nil {
-        panic(err)
-    }
+	if err != nil {
+		panic(err)
+	}
 
 	n.Handle("broadcast", s.HandleBroadcast)
 
