@@ -5,9 +5,12 @@ import (
 	"maelstrom-broadcast/snowflake"
 	"os"
 	"sync"
+	"time"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
+
+type nbrIds map[int]struct{}
 
 type Server struct {
 	n    *maelstrom.Node
@@ -15,8 +18,9 @@ type Server struct {
 
 	worker *snowflake.Worker
 
-	idsMu sync.RWMutex
-	ids   []int
+	idsMu  sync.RWMutex
+	ids    map[int]struct{}
+	nbrIds map[string]nbrIds
 }
 
 func New(n *maelstrom.Node) (*Server, error) {
@@ -24,10 +28,12 @@ func New(n *maelstrom.Node) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	ids := make(map[int]struct{})
 
 	return &Server{
 		n:      n,
 		worker: worker,
+		ids:    ids,
 	}, nil
 
 }
@@ -41,17 +47,8 @@ func (s *Server) HandleBroadcast(msg maelstrom.Message) error {
 	// message field is guaranteed to be an integer
 	msgId := int(body["message"].(float64))
 
-	s.idsMu.RLock()
-	for _, id := range s.ids {
-		if id == msgId {
-			// might not be the one
-			return nil
-		}
-	}
-	s.idsMu.RUnlock()
-
 	s.idsMu.Lock()
-	s.ids = append(s.ids, msgId)
+	s.ids[msgId] = struct{}{}
 	s.idsMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
@@ -64,19 +61,20 @@ func (s *Server) HandleRead(msg maelstrom.Message) error {
 
 	s.idsMu.RLock()
 	defer s.idsMu.RUnlock()
-	body["messages"] = s.ids
-	body["type"] = "read_ok"
-	nextId, err := s.worker.NextId()
-	if err != nil {
-		return err
+	ids := make([]int, len(s.ids))
+	i := 0
+	for key := range s.ids {
+		ids[i] = key
+		i += 1
 	}
-	body["msg_id"] = nextId
+	body["messages"] = ids
+	body["type"] = "read_ok"
 
 	return s.n.Reply(msg, body)
 }
 
 type topologyBody struct {
-	topology map[string][]string
+	Topology map[string][]string
 }
 
 func (s *Server) HandleTopology(msg maelstrom.Message) error {
@@ -86,7 +84,7 @@ func (s *Server) HandleTopology(msg maelstrom.Message) error {
 		return err
 	}
 
-	topology_nbrs := body.topology[s.n.ID()]
+	topology_nbrs := body.Topology[s.n.ID()]
 
 	nbrs := make([]string, len(topology_nbrs))
 
@@ -96,14 +94,86 @@ func (s *Server) HandleTopology(msg maelstrom.Message) error {
 
 	s.nbrs = nbrs
 
+	s.nbrIds = make(map[string]nbrIds)
+	for _, nbr := range s.nbrs {
+		s.nbrIds[nbr] = make(nbrIds)
+	}
+
 	out := make(map[string]any)
 	out["type"] = "topology_ok"
 
-	nextId, err := s.worker.NextId()
-	if err != nil {
-		return err
-	}
-	out["msg_id"] = nextId
-
 	return s.n.Reply(msg, out)
+}
+
+func (s *Server) Gossip() {
+	ticker := time.NewTicker(300 * time.Millisecond)
+	go func() {
+		for range ticker.C {
+			for _, nbr := range s.nbrs {
+				msgId, err := s.worker.NextId()
+				if err != nil {
+					// print error to stderr
+					continue
+				}
+
+				msg := map[string]any{
+					"type":   "read",
+					"msg_id": msgId,
+				}
+
+				// I think we should revisit this
+				// We don't need to issue reads
+				// We can take two approaches
+				// -> Track who is sending us stuff (then recording where we've learnt stuff)
+				// -> Track responses to our messages
+				//     -> If we get an ACK then they now have it
+				s.n.RPC(nbr, msg, s.gossip(nbr))
+			}
+		}
+	}()
+}
+
+func (s *Server) gossip(nbr string) func(msg maelstrom.Message) error {
+	// errorPrint := log.New(os.Stderr,"", 1)
+	return func(msg maelstrom.Message) error {
+		var body struct {
+			messages []int
+		}
+
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return err
+		}
+
+		s.idsMu.Lock()
+		for _, msg := range body.messages {
+			s.ids[msg] = struct{}{}
+			// _, seen := s.nbrIds[nbr][msg]
+			// if !seen {
+			// 	s.nbrIds[nbr][msg] = struct{}{}
+			// }
+		}
+		s.idsMu.Unlock()
+
+		// identify any differences between you and your neighbour
+		// for msg := range s.ids {
+		// 	_, seen := s.nbrIds[nbr][msg]
+		// 	if !seen {
+		//               errorPrint.Printf("Sending %d to %s\n", msg, nbr)
+		// 		msgId, err := s.worker.NextId()
+		// 		if err != nil {
+		// 			// print error to stderr
+		// 			continue
+		// 		}
+		//
+		// 		msg := map[string]any{
+		// 			"type":    "broadcast",
+		// 			"message": msg,
+		// 			"msg_id":  msgId,
+		// 		}
+		//
+		// 		s.n.Send(nbr, msg)
+		// 	}
+		// }
+		return nil
+	}
 }

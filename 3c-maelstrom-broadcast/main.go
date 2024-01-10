@@ -28,6 +28,8 @@ func main() {
 
 	n.Handle("topology", s.HandleTopology)
 
+	s.Gossip()
+
 	if err := n.Run(); err != nil {
 		log.Fatal(err)
 	}
