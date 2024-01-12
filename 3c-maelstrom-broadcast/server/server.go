@@ -60,13 +60,13 @@ func (s *Server) HandleRead(msg maelstrom.Message) error {
 	body := make(map[string]any)
 
 	s.idsMu.RLock()
-	defer s.idsMu.RUnlock()
 	ids := make([]int, len(s.ids))
 	i := 0
 	for key := range s.ids {
 		ids[i] = key
 		i += 1
 	}
+	s.idsMu.RUnlock()
 	body["messages"] = ids
 	body["type"] = "read_ok"
 
@@ -134,46 +134,33 @@ func (s *Server) Gossip() {
 }
 
 func (s *Server) gossip(nbr string) func(msg maelstrom.Message) error {
-	// errorPrint := log.New(os.Stderr,"", 1)
+	//errorPrint := log.New(os.Stderr,"", 1)
 	return func(msg maelstrom.Message) error {
 		var body struct {
-			messages []int
+			Messages []int
 		}
 
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
 
+		s.idsMu.RLock()
+		currIds := s.ids
+		newIds := make([]int, 0)
+
+		for _, id := range body.Messages {
+			if _, pres := currIds[id]; !pres {
+				newIds = append(newIds, id)
+			}
+		}
+		s.idsMu.RUnlock()
+
 		s.idsMu.Lock()
-		for _, msg := range body.messages {
+		for _, msg := range newIds {
 			s.ids[msg] = struct{}{}
-			// _, seen := s.nbrIds[nbr][msg]
-			// if !seen {
-			// 	s.nbrIds[nbr][msg] = struct{}{}
-			// }
 		}
 		s.idsMu.Unlock()
 
-		// identify any differences between you and your neighbour
-		// for msg := range s.ids {
-		// 	_, seen := s.nbrIds[nbr][msg]
-		// 	if !seen {
-		//               errorPrint.Printf("Sending %d to %s\n", msg, nbr)
-		// 		msgId, err := s.worker.NextId()
-		// 		if err != nil {
-		// 			// print error to stderr
-		// 			continue
-		// 		}
-		//
-		// 		msg := map[string]any{
-		// 			"type":    "broadcast",
-		// 			"message": msg,
-		// 			"msg_id":  msgId,
-		// 		}
-		//
-		// 		s.n.Send(nbr, msg)
-		// 	}
-		// }
 		return nil
 	}
 }
