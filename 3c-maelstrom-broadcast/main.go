@@ -28,6 +28,8 @@ func main() {
 
 	n.Handle("topology", s.HandleTopology)
 
+	n.Handle("gossip", s.HandleGossip)
+
 	s.Gossip()
 
 	if err := n.Run(); err != nil {
