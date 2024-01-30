@@ -107,13 +107,23 @@ func (s *Server) RefreshCache() {
 	go func() {
 		for range ticker.C {
 			ctx := context.TODO()
+			selfId := s.n.ID()
 
-			s.muCache.Lock()
+			newValues := make(map[string]int)
 			for _, node := range s.n.NodeIDs() {
+				if node == selfId {
+					continue
+				}
+
 				val, err := s.kv.ReadInt(ctx, node)
 				if err != nil {
 					s.log.Printf("error reading node: [%s] in CommitAdds: %v\n", node, err)
 				}
+				newValues[node] = val
+			}
+
+			s.muCache.Lock()
+			for node, val := range newValues {
 				s.localCache[node] = val
 			}
 			s.muCache.Unlock()
